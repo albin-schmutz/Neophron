@@ -1,7 +1,16 @@
 CC = gcc
 CFLAGS = -Wall -O
 
-all: scanner_test
+all: emitter_test scanner_test
+
+emitter.o: emitter.c emitter.h opcode.h
+	$(CC) $(CFLAGS) -c emitter.c
+
+emitter_test: emitter_test.c emitter.h opcode.h \
+		emitter.o
+	$(CC) $(CFLAGS) emitter_test.c -o tmp_emitter_test \
+		emitter.o
+	./tmp_emitter_test
 
 scanner.o: scanner.c scanner.h ../../Lib/src/source.h \
 		../../Lib/src/reader_file.h ../../Lib/src/reader.h
