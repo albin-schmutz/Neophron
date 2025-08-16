@@ -1,0 +1,242 @@
+MODULE NPD;
+
+IMPORT System, Buffer, Print, Integer;
+
+
+VAR
+
+  file : Buffer.Rec;
+  out : Buffer.Rec;
+  addr : LONGINT;
+  eof : BOOLEAN;
+  ops : Buffer.Rec;
+
+
+PROCEDURE OpenNpx0File;
+
+  VAR i : LONGINT;
+
+  BEGIN
+    file.val[0] := 0;
+    System.GetArg(i, file);
+    Buffer.PutChars(file, 6, 2E6E70783000H); (* .npx0 *)
+    Buffer.Flip(file);
+    file.val[1] := System.ModeRead;
+    System.FileOpen(file.val[0], file);
+    ASSERT(file.val[0] # 0)
+  END OpenNpx0File;
+
+
+PROCEDURE ReadN(VAR buf : Buffer.Rec; n : INTEGER);
+
+  VAR i : LONGINT;
+
+  BEGIN
+    file.pos := 0; file.limit := n;
+    System.FileRead(i, file);
+    eof := i # n;
+    addr := addr + i;
+    IF ~eof THEN
+      Buffer.Flip(file);
+      Buffer.PutBuffer(buf, file)
+    END
+  END ReadN;
+
+
+PROCEDURE ReadI32(VAR i32 : INTEGER);
+
+  VAR buf : Buffer.Rec; i64 : LONGINT;
+
+  BEGIN
+    Buffer.Reset(buf); ReadN(buf, 4);
+    IF ~eof THEN
+      Buffer.Reset(buf); Buffer.GetChars(buf, 4, i64);
+      i32 := i64
+    END
+  END ReadI32;
+
+
+PROCEDURE ReadI64(VAR i64 : LONGINT);
+
+  VAR buf : Buffer.Rec;
+
+  BEGIN
+    Buffer.Reset(buf); ReadN(buf, 8);
+    IF ~eof THEN
+      Buffer.Reset(buf); Buffer.GetChars(buf, 8, i64)
+    END
+  END ReadI64;
+
+
+PROCEDURE Addr(VAR buf : Buffer.Rec; addr : INTEGER);
+
+  VAR buf2 : Buffer.Rec;
+
+  BEGIN
+    Buffer.Reset(buf2);
+    Integer.PutHex(buf2, addr);
+    buf2.limit := buf2.pos; buf2.pos := 8;
+    Buffer.PutBuffer(buf, buf2)
+  END Addr;
+
+
+PROCEDURE Instructions(progSize : INTEGER);
+
+  VAR buf : Buffer.Rec; endAddr : INTEGER; instr : INTEGER;
+
+  PROCEDURE Ops(VAR buf : Buffer.Rec; oc : INTEGER);
+
+    VAR pos : INTEGER; end : INTEGER;
+
+    BEGIN
+      pos := oc * 4;
+      end := pos + 3;
+      WHILE ops.data[end] = 20X DO end := end - 1 END;
+      WHILE pos <= end DO
+        Buffer.PutChar(buf, ops.data[pos]); pos := pos + 1
+      END;
+      Buffer.PutChar(buf, 20X)
+    END Ops;
+
+  PROCEDURE Reg(VAR buf : Buffer.Rec; reg : INTEGER);
+
+    BEGIN
+      IF reg = 15 THEN
+        Buffer.PutChars(buf, 2, 5043H)
+      ELSIF reg = 14 THEN
+        Buffer.PutChars(buf, 2, 4252H)
+      ELSIF reg = 13 THEN
+        Buffer.PutChars(buf, 2, 5350H)
+      ELSIF reg = 12 THEN
+        Buffer.PutChars(buf, 2, 4650H)
+      ELSE
+        Integer.Put(buf, reg)
+      END
+    END Reg;
+
+  PROCEDURE Decode(VAR buf : Buffer.Rec; instr : INTEGER);
+
+    VAR oc : INTEGER; i64 : LONGINT;
+
+    BEGIN
+      oc := BITA(instr, 31);
+      IF oc = 0 THEN
+        oc := 32 + ASH(instr, -13);
+        IF oc < 48 THEN
+          Ops(buf, oc - 16);
+          Reg(buf, BITA(ASH(instr, -5), 15)); Buffer.PutChar(buf, 20X);
+          Reg(buf, BITA(ASH(instr, -9), 15)); Buffer.PutChar(buf, 20X);
+          ReadI64(i64);
+          Integer.Put(buf, i64)
+        ELSIF oc < 128 THEN
+          Ops(buf, oc DIV 16 + 29);
+          Reg(buf, oc MOD 16); Buffer.PutChar(buf, 20X);
+          Reg(buf, BITA(ASH(instr, -5), 15)); Buffer.PutChar(buf, 20X);
+          Reg(buf, BITA(ASH(instr, -9), 15))
+        ELSIF oc < 134 THEN
+          Ops(buf, oc - 128 + 37);
+          Reg(buf, BITA(ASH(instr, -5), 15)); Buffer.PutChar(buf, 20X);
+          Reg(buf, BITA(ASH(instr, -9), 15))
+        ELSE
+          Ops(buf, 43);
+          Integer.Put(buf, oc - 134);
+          Buffer.PutChar(buf, 20X);
+          Reg(buf, BITA(ASH(instr, -5), 15)); Buffer.PutChar(buf, 20X);
+          Reg(buf, BITA(ASH(instr, -9), 15))
+        END
+      ELSIF oc < 12 THEN
+        Ops(buf, oc);
+        oc := ASH(instr, -5);
+        Integer.Put(buf, oc);
+        Buffer.PutChar(buf, 20X);
+        Addr(buf, addr + 4 * oc)
+      ELSIF oc < 32 THEN
+        Ops(buf, oc);
+        Reg(buf, BITA(ASH(instr, -5), 15)); Buffer.PutChar(buf, 20X);
+        Reg(buf, BITA(ASH(instr, -9), 15)); Buffer.PutChar(buf, 20X);
+        Integer.Put(buf, ASH(instr, -13))
+      END
+    END Decode;
+
+  BEGIN (* Instructions *)
+    endAddr := addr + progSize;
+    WHILE addr < endAddr DO
+      Buffer.Reset(buf);
+      Addr(buf, addr); Buffer.PutChar(buf, 20X); ReadI32(instr);
+      Decode(buf, instr); Buffer.PutChar(buf, 0AX);
+      Buffer.Flip(buf); Print.ToStdout(buf)
+    END
+  END Instructions;
+
+
+PROCEDURE Module;
+
+  VAR i : INTEGER; progSize : INTEGER;
+
+  PROCEDURE HeaderEntry(VAR eof : BOOLEAN; VAR res : INTEGER;
+                        name1 : LONGINT; name2 : LONGINT; len2 : INTEGER);
+
+    BEGIN
+      Buffer.Reset(out);
+      Buffer.PutChars(out, 8, name1);
+      Buffer.PutChars(out, len2, name2);
+      ReadI32(res);
+      IF ~eof THEN
+        Integer.Put(out, res);
+        Buffer.PutChar(out, 0AX);
+        Buffer.Flip(out);
+        Print.ToStdout(out)
+      END
+    END HeaderEntry;
+
+  BEGIN (* Module *)
+    Buffer.Reset(out);
+    Buffer.PutChars(out, 8, 4D6F64756C653A20H); (* Module *)
+    ReadN(out, 32);
+    WHILE out.data[out.pos - 1] = 0X DO out.pos := out.pos - 1 END;
+    IF ~eof THEN
+      Buffer.PutChar(out, 0AX);
+      Buffer.Flip(out);
+      Print.ToStdout(out);
+      HeaderEntry(eof, i, 7661725F73697A65H, 3A20H, 2); (* var_size *)
+      IF ~eof THEN
+        HeaderEntry(eof, progSize, 70726F675F73697AH, 653A20H, 3) (* prog_size *)
+      END;
+      IF ~eof THEN
+        HeaderEntry(eof, i, 656E7472795F706FH, 696E743A20H, 5) (* entry_point *)
+      END;
+      IF ~eof THEN
+        Instructions(progSize)
+      END
+    END
+  END Module;
+
+BEGIN
+  OpenNpx0File;
+  Buffer.Reset(ops);
+  Buffer.PutChars(ops, 8, 2020202020202020H); (*  0          *)
+  Buffer.PutChars(ops, 8, 4A554D5043414C4CH); (*  2 JUMPCALL *)
+  Buffer.PutChars(ops, 8, 42455120424E4520H); (*  4 BEQ BNE  *)
+  Buffer.PutChars(ops, 8, 424C532042474520H); (*  6 BLS BGE  *)
+  Buffer.PutChars(ops, 8, 424C452042475420H); (*  8 BLE BGT  *)
+  Buffer.PutChars(ops, 8, 2020202020202020H); (* 10          *)
+  Buffer.PutChars(ops, 8, 20202020504F5020H); (* 12     POP  *)
+  Buffer.PutChars(ops, 8, 5053482020202020H); (* 14 PSH      *)
+  Buffer.PutChars(ops, 8, 4D4F564920202020H); (* 16 MOVI     *)
+  Buffer.PutChars(ops, 8, 4D554C4944495649H); (* 18 MULIDIVI *)
+  Buffer.PutChars(ops, 8, 4D4F444941444449H); (* 20 MODIADDI *)
+  Buffer.PutChars(ops, 8, 5355424920202020H); (* 22 SUBI     *)
+  Buffer.PutChars(ops, 8, 4C4442204C445720H); (* 24 LDB LDW  *)
+  Buffer.PutChars(ops, 8, 4C4444204C445120H); (* 26 LDD LDQ  *)
+  Buffer.PutChars(ops, 8, 5354422053545720H); (* 28 STB STW  *)
+  Buffer.PutChars(ops, 8, 5354442053545120H); (* 30 STD STQ  *)
+  Buffer.PutChars(ops, 8, 4D554C2044495620H); (* 32 MUL DIV  *)
+  Buffer.PutChars(ops, 8, 4D4F442041444420H); (* 34 MOD ADD  *)
+  Buffer.PutChars(ops, 8, 5355422041534820H); (* 36 SUB ASH  *)
+  Buffer.PutChars(ops, 8, 424954414249544FH); (* 38 BITABITO *)
+  Buffer.PutChars(ops, 8, 4D4F56204E454720H); (* 40 MOV NEG  *)
+  Buffer.PutChars(ops, 8, 4E4F542053595320H); (* 42 NOT SYS  *)
+  Buffer.Flip(ops);
+  addr := 0; eof := FALSE;
+  WHILE ~eof DO Module END
+END NPD.
