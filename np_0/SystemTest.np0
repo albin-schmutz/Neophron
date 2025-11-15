@@ -1,0 +1,176 @@
+MODULE SystemTest;
+
+IMPORT Buffer, System;
+
+
+VAR
+
+  argc : LONGINT;
+
+
+PROCEDURE TestExec;
+
+  VAR data : ARRAY 64 OF CHAR; buf : Buffer.Rec;
+
+  BEGIN
+    buf.addr := ADDR(data); buf.size := 64;
+    Buffer.Reset(buf);
+    IF ~System.os.isWindows THEN
+      Buffer.PutChars(buf, 2, 2E2FH) (* ./ *)
+    END;
+    (* np_0 SystemTest gugus "Hello !" -123 *)
+    Buffer.PutChars(buf, 8, 6E705F3020537973H);
+    Buffer.PutChars(buf, 8, 74656D5465737420H);
+    Buffer.PutChars(buf, 8, 6775677573202248H);
+    Buffer.PutChars(buf, 8, 656C6C6F20212220H);
+    Buffer.PutChars(buf, 5, 2D31323300H);
+    Buffer.Flip(buf);
+    System.Exec(buf.i64, buf);
+    ASSERT(buf.i64 = 0)
+  END TestExec;
+
+
+PROCEDURE TestGetArg;
+
+  VAR data : ARRAY 32 OF CHAR; buf : Buffer.Rec; i : LONGINT;
+
+  BEGIN
+    buf.addr := ADDR(data); buf.size := 32;
+
+    Buffer.Reset(buf);
+    buf.i32 := 0;
+    System.GetArg(i, buf);
+    ASSERT(i = 5);
+    ASSERT(buf.pos = i);
+    ASSERT(buf.limit = buf.size);
+    Buffer.Flip(buf);
+    Buffer.GetChars(buf, 5, i);
+    ASSERT(i = 6775677573H); (* gugus *)
+
+    Buffer.Reset(buf);
+    buf.i32 := 1;
+    System.GetArg(i, buf);
+    ASSERT(i = 7);
+    ASSERT(buf.pos = i);
+    ASSERT(buf.limit = buf.size);
+    Buffer.Flip(buf);
+    Buffer.GetChars(buf, 7, i);
+    ASSERT(i = 48656C6C6F2021H); (* Hello ! *)
+
+    Buffer.Reset(buf);
+    buf.i32 := 2;
+    System.GetArg(i, buf);
+    ASSERT(i = 4);
+    ASSERT(buf.pos = i);
+    ASSERT(buf.limit = buf.size);
+    Buffer.Flip(buf);
+    Buffer.GetChars(buf, 4, i);
+    ASSERT(i = 2D313233H) (* -123 *)
+  END TestGetArg;
+
+
+PROCEDURE TestGetEnv;
+
+  VAR data : ARRAY 32 OF CHAR; buf : Buffer.Rec; i : LONGINT;
+
+  BEGIN
+    buf.addr := ADDR(data); buf.size := 32;
+    Buffer.Reset(buf);
+    IF System.os.isWindows THEN
+      Buffer.PutChars(buf, 7, 77696E64697200H); (* windir *)
+      Buffer.Reset(buf);
+      System.GetEnv(i, buf);
+      ASSERT(i = 10);
+      ASSERT(buf.pos = i);
+      ASSERT(buf.limit = buf.size);
+      Buffer.Flip(buf);
+      Buffer.GetChars(buf, 8, i);
+      ASSERT(i = 433A5C57494E444FH); (* C:\WINDOWS *)
+      Buffer.GetChars(buf, 2, i);
+      ASSERT(i = 5753H)
+    ELSE
+      Buffer.PutChars(buf, 5, 484F4D4500H); (* HOME *)
+      Buffer.Reset(buf);
+      System.GetEnv(i, buf);
+      ASSERT(i > 0);
+      ASSERT(buf.pos > 0);
+      ASSERT(buf.limit = buf.size);
+      Buffer.Flip(buf);
+      ASSERT(buf.limit > 6);
+      Buffer.GetChars(buf, 6, i);
+      ASSERT(i =  2F686F6D652FH) (* /home/ *)
+    END
+  END TestGetEnv;
+
+
+PROCEDURE TestFile;
+
+  VAR data : ARRAY 232 OF CHAR; buf : Buffer.Rec; i : INTEGER; j : LONGINT;
+
+  BEGIN
+    buf.addr := ADDR(data); buf.size := 232;
+    Buffer.Reset(buf);
+    Buffer.PutChars(buf, 4, 746D7000H); (* tmp *)
+    Buffer.Flip(buf);
+    buf.i32 := System.ModeWrite;
+    System.FileOpen(buf.i64, buf);
+    ASSERT(buf.i64 # 0);
+    i := 0;
+    WHILE i < 23 DO
+      Buffer.Reset(buf);
+      (* Hallo Welt *)
+      Buffer.PutChars(buf, 8, 48616C6C6F205765H);
+      Buffer.PutChars(buf, 4, 6C74210AH);
+      Buffer.Flip(buf);
+      System.FileWrite(j, buf);
+      ASSERT(j = 12);
+      i := i + 1
+    END;
+    System.FileClose(buf.i64);
+
+    Buffer.Reset(buf);
+    Buffer.PutChars(buf, 4, 746D7000H); (* tmp *)
+    Buffer.Flip(buf);
+    buf.i32 := System.ModeRead;
+    System.FileOpen(buf.i64, buf);
+    ASSERT(buf.i64 # 0);
+    Buffer.Reset(buf);
+    System.FileRead(j, buf);
+    ASSERT(j = buf.size);
+    ASSERT(data[0] = 48X);
+    ASSERT(data[1] = 61X);
+    ASSERT(data[2] = 6CX);
+    ASSERT(data[3] = 6CX);
+    ASSERT(data[4] = 6FX);
+    ASSERT(data[10] = 21X);
+    ASSERT(data[11] = 0AX);
+    ASSERT(data[12] = 48X);
+    Buffer.Reset(buf);
+    System.FileRead(j, buf);
+    ASSERT(j = (23 * 12) - buf.size);
+    System.FileClose(buf.i64)
+  END TestFile;
+
+
+PROCEDURE TestHeapAlloc;
+
+  VAR addr1 : LONGINT; addr2 : LONGINT;
+
+  BEGIN
+    System.HeapAlloc(addr2, 4);
+    System.HeapAlloc(addr1, 7);
+    ASSERT(addr1 - addr2 = 32);
+    System.HeapAlloc(addr2, 1);
+    ASSERT(addr2 - addr1 = 56)
+  END TestHeapAlloc;
+
+
+BEGIN
+  System.GetInfo(argc, System.InfoArgc);
+  IF argc = 0 THEN
+    TestExec; TestGetEnv; TestFile; TestHeapAlloc
+  ELSE
+    ASSERT(argc = 3);
+    TestGetArg
+  END
+END SystemTest.

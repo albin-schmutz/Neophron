@@ -1,0 +1,128 @@
+MODULE IntegerTest;
+
+IMPORT Buffer, Integer;
+
+
+PROCEDURE TestPut;
+
+  VAR data : ARRAY 32 OF CHAR; buf : Buffer.Rec;
+
+  BEGIN
+    buf.addr := ADDR(data); buf.size := 32;
+    Buffer.Reset(buf);
+    Integer.Put(buf, 0);
+    ASSERT(data[0] = 30X);
+    ASSERT(buf.pos = 1);
+    Buffer.Reset(buf);
+    Integer.Put(buf, Integer.Min);
+    ASSERT(data[0] = 2DX);
+    ASSERT(data[1] = 39X);
+    ASSERT(data[10] = 36X);
+    ASSERT(data[19] = 38X);
+    ASSERT(buf.pos = 20);
+    Buffer.Reset(buf);
+    Integer.Put(buf, -9);
+    ASSERT(data[0] = 2DX);
+    ASSERT(data[1] = 39X);
+    ASSERT(buf.pos = 2)
+  END TestPut;
+
+
+PROCEDURE TestPutHex;
+
+  VAR data : ARRAY 32 OF CHAR; buf : Buffer.Rec;
+
+  BEGIN
+    buf.addr := ADDR(data); buf.size := 32;
+    Buffer.Reset(buf);
+    Integer.PutHex(buf, 123456789);
+    (* 00000000075BCD15 *)
+    ASSERT(buf.pos = 16);
+    ASSERT(data[0] = 30X);
+    ASSERT(data[8] = 30X);
+    ASSERT(data[9] = 37X);
+    ASSERT(data[10] = 35X);
+    ASSERT(data[11] = 42X);
+    ASSERT(data[12] = 43X);
+    ASSERT(data[13] = 44X);
+    ASSERT(data[14] = 31X);
+    ASSERT(data[15] = 35X);
+
+    Buffer.Reset(buf);
+    Integer.PutHex(buf, -123456789);
+    (* FFFFFFFFF8A432EB *)
+    ASSERT(buf.pos = 16);
+    ASSERT(data[0] = 46X);
+    ASSERT(data[8] = 46X);
+    ASSERT(data[9] = 38X);
+    ASSERT(data[10] = 41X);
+    ASSERT(data[11] = 34X);
+    ASSERT(data[12] = 33X);
+    ASSERT(data[13] = 32X);
+    ASSERT(data[14] = 45X);
+    ASSERT(data[15] = 42X)
+  END TestPutHex;
+
+
+PROCEDURE TestPutGet;
+
+  VAR data : ARRAY 32 OF CHAR; buf : Buffer.Rec; i : LONGINT; j : LONGINT;
+
+  BEGIN
+    buf.addr := ADDR(data); buf.size := 32;
+    Buffer.Reset(buf);
+    i := 0; j := -1;
+    Integer.Put(buf, i);
+    Buffer.Flip(buf);
+    Integer.Get(buf, j);
+    ASSERT(i = j);
+
+    Buffer.Reset(buf);
+    i := 1982938492387;
+    Integer.Put(buf, i);
+    Buffer.Flip(buf);
+    Integer.Get(buf, j);
+    ASSERT(i = j);
+
+    Buffer.Reset(buf);
+    i := -1982938492387;
+    Integer.Put(buf, i);
+    Buffer.Flip(buf);
+    Integer.Get(buf, j);
+    ASSERT(i = j);
+
+    Buffer.Reset(buf);
+    i := Integer.Min;
+    Integer.Put(buf, i);
+    Buffer.Flip(buf);
+    Integer.Get(buf, j);
+    ASSERT(i = j)
+  END TestPutGet;
+
+
+PROCEDURE TestPutGetHex;
+
+  VAR data : ARRAY 32 OF CHAR; buf : Buffer.Rec; i : LONGINT; j : LONGINT;
+
+  BEGIN
+    buf.addr := ADDR(data); buf.size := 32;
+    Buffer.Reset(buf);
+    i := 0FFFFFFFFF8A432EBH;
+    Integer.PutHex(buf, i);
+    Buffer.Flip(buf);
+    Integer.GetHex(buf, j);
+    ASSERT(i = j);
+
+    Buffer.Reset(buf);
+    Buffer.PutChar(buf, 30X);
+    Buffer.PutChar(buf, 30X);
+    Integer.PutHex(buf, i);
+    Buffer.Flip(buf);
+    Integer.GetHex(buf, j);
+    ASSERT(i = j)
+  END TestPutGetHex;
+
+
+BEGIN
+  TestPut; TestPutHex; TestPutGet; TestPutGetHex
+END IntegerTest.

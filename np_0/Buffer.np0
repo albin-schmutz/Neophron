@@ -1,0 +1,115 @@
+MODULE Buffer;
+
+
+TYPE
+
+  Arr* = ARRAY 2147483647 OF CHAR;
+
+  Rec* = RECORD
+    addr* : LONGINT;
+    i64 : LONGINT;
+    i32 : INTEGER;
+    size* : INTEGER;
+    pos* : INTEGER;
+    limit* : INTEGER
+  END;
+
+
+PROCEDURE Reset*(VAR buf : Rec);
+
+  BEGIN
+    buf.pos := 0; buf.limit := buf.size
+  END Reset;
+
+
+PROCEDURE Flip*(VAR buf : Rec);
+
+  BEGIN
+    buf.limit := buf.pos; buf.pos := 0
+  END Flip;
+
+
+PROCEDURE GetChar*(VAR buf : Rec; VAR c : CHAR);
+
+  PROCEDURE Get(VAR c : CHAR; VAR a : Arr; VAR pos : INTEGER);
+
+    BEGIN
+      c := a[pos]; pos := pos + 1
+    END Get;
+
+  BEGIN
+    ASSERT(buf.pos < buf.limit);
+    Get(c, buf.addr, buf.pos)
+  END GetChar;
+
+
+PROCEDURE PutChar*(VAR buf : Rec; c : CHAR);
+
+  PROCEDURE Put(c : CHAR; VAR a : Arr; VAR pos : INTEGER);
+
+    BEGIN
+      a[pos] := c; pos := pos + 1
+    END Put;
+
+  BEGIN
+    ASSERT(buf.pos < buf.limit);
+    Put(c, buf.addr, buf.pos)
+  END PutChar;
+
+
+PROCEDURE GetChars*(VAR buf : Rec; n : INTEGER; VAR i : LONGINT);
+
+  VAR end : INTEGER;
+
+  PROCEDURE GetN(VAR i : LONGINT; VAR a : Arr; VAR pos : INTEGER; end : INTEGER);
+
+    BEGIN
+      i := 0;
+      WHILE pos < end DO
+        i := BITO(ASH(i, 8), ORD(a[pos])); pos := pos + 1
+      END
+    END GetN;
+
+  BEGIN
+    ASSERT(n > 0);
+    ASSERT(n <= 8);
+    end := buf.pos + n;
+    ASSERT(end <= buf.limit);
+    GetN(i, buf.addr, buf.pos, end)
+  END GetChars;
+
+
+PROCEDURE PutChars*(VAR buf : Rec; n : INTEGER; i : LONGINT);
+
+  VAR end : INTEGER;
+
+  PROCEDURE PutN(i : LONGINT; VAR a : Arr; pos : INTEGER; end : INTEGER);
+
+    BEGIN
+      WHILE end > pos DO
+        end := end - 1; a[end] := CHR(BITA(i, 255)); i := ASH(i, -8)
+      END
+    END PutN;
+
+  BEGIN
+    ASSERT(n > 0);
+    ASSERT(n <= 8);
+    end := buf.pos + n;
+    ASSERT(end <= buf.limit);
+    PutN(i, buf.addr, buf.pos, end);
+    buf.pos := buf.pos + n
+  END PutChars;
+
+
+PROCEDURE PutBuffer*(VAR buf : Rec; VAR buf2 : Rec);
+
+  VAR c : CHAR;
+
+  BEGIN
+    WHILE (buf.pos < buf.limit) & (buf2.pos < buf2.limit) DO
+      GetChar(buf2, c); PutChar(buf, c)
+    END
+  END PutBuffer;
+
+
+END Buffer.

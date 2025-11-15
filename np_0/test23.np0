@@ -1,0 +1,85 @@
+MODULE test23;
+
+
+IMPORT Buffer, System, Integer, Print;
+
+
+CONST
+
+  x = 5;
+  y = SIZE(LONGINT);
+
+
+TYPE
+
+  A = ARRAY 10 OF SHORTINT;
+  R = RECORD
+    a : A;
+    i : INTEGER;
+    c : CHAR
+  END;
+
+
+VAR
+
+  i : LONGINT;
+  a : A;
+  r : R;
+
+
+PROCEDURE PrintLongint(i : LONGINT);
+
+  VAR buf : ARRAY 32 OF CHAR; out : Buffer.Rec;
+
+  BEGIN
+    out.addr := ADDR(buf); out.size := 32;
+    Buffer.Reset(out);
+    Integer.PutHex(out, i);
+    Buffer.PutChar(out, 0AX);
+    Buffer.Flip(out); Print.ToStdout(out)
+  END PrintLongint;
+
+
+PROCEDURE P(i32 : INTEGER; i64 : LONGINT; VAR r2 : R; i16 : SHORTINT);
+
+  VAR i : SHORTINT; j : INTEGER; r3 : R;
+
+  BEGIN
+    ASSERT(ADDR(i32) - ADDR(i64) = 8);
+    ASSERT(ADDR(r) = ADDR(r2));
+    ASSERT(ADDR(i64) - ADDR(i16) = 16);
+    ASSERT(ADDR(i) - ADDR(j) = 8);
+    ASSERT(ADDR(r2.a) - ADDR(r2.i) = -20);
+    ASSERT(ADDR(r2.i) - ADDR(r2.c) = -4);
+    ASSERT(r2.a[4] = 42)
+  END P;
+
+
+PROCEDURE Q(VAR r2 : R; VAR a2 : A);
+
+  BEGIN
+    ASSERT(r2.a[4] = 42);
+    ASSERT(a2[5] = 44)
+  END Q;
+
+
+BEGIN
+  ASSERT(y = 8);
+  ASSERT(SIZE(A) = 20);
+  ASSERT(SIZE(R) = 25);
+  ASSERT(ADDR(i) - ADDR(a) = 24);
+  ASSERT(ADDR(a) - ADDR(r) = 32);
+  ASSERT(ADDR(a) = ADDR(a[0]));
+  ASSERT(ADDR(a[1]) - ADDR(a[0]) = 2);
+  r.a[4] := 42;
+  a[5] := 44;
+  P(4, 5, r, 6);
+  i := ADDR(r);
+  Q(i, ADDR(a));
+
+  System.GetInfo(i, System.InfoMemStart); PrintLongint(i);
+  System.GetInfo(i, System.InfoMemSize); PrintLongint(i);
+  System.GetInfo(i, System.InfoStackStart); PrintLongint(i);
+  System.GetInfo(i, System.InfoHeapStart); PrintLongint(i)
+
+END test23.
